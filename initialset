@@ -1,0 +1,41 @@
+strategy(title = "전략이름", shorttitle="전략 짧은이름",
+         overlay=true, 
+         max_bars_back=500,
+         process_orders_on_close=true,
+             initial_capital=10000,                              //=> 초기자본금을 입력하세요(현재 업비트면 10000원, 해외거래소면 10000달러로 자동세팅됨)
+             default_qty_type=strategy.percent_of_equity, 
+             default_qty_value=100,                              //=> 초기자본금에 따른 진입가 퍼센트값을 입력하세요 (현재 100%진입)
+             commission_type=strategy.commission.percent, 
+             commission_value=0.05
+         )
+//////////////////////////////////////////////////
+/////// 롱 숏을 수동으로 설정
+// i_tradeDirection = input.string(title='Trade Direction', 
+//                          defval=strategy.direction.all, 
+//                          options=[strategy.direction.all, 
+//                          strategy.direction.long, strategy.direction.short], 
+//                          group='Trade Filters')
+// strategy.risk.allow_entry_in(i_tradeDirection)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Trade Direction Filter : 롱숏선택을 자동으로 
+tradeDirectionInput = input.string(defval="Auto", 
+                                 options=["Auto", "Long&Short","Long Only", "Short Only"], 
+                                 title="Trade", 
+                                 group="Direction Filter", 
+                                 tooltip="Auto: if a PERP is detected (in the symbol description), trade long and short\n Otherwise as per user-input")
+tradeDirection = switch tradeDirectionInput
+	"Auto" => str.contains(str.lower(syminfo.description), "perp") or str.contains(str.lower(syminfo.description), ".p") ? strategy.direction.all : strategy.direction.long
+	"Long&Short" => strategy.direction.all
+	"Long Only" => strategy.direction.long
+    "Short Only" => strategy.direction.short
+	=> strategy.direction.all
+strategy.risk.allow_entry_in(tradeDirection)
+///////////////////////////////////////////////////////////////
+//request.security함수의 리페인팅을 막아주는 펑션 
+nonRepaintingSecurityAlternate(sym, tf, src) =>
+    request.security(sym, tf, src[1], lookahead = barmerge.lookahead_on)
+
+nonRepaintingSecurityAlternate(_symbol, _res, _src, _repaint) => 
+    request.security(_symbol, _res, _src[_repaint ? 0 : barstate.isrealtime ? 1 : 0])[_repaint ? 0 : barstate.isrealtime ? 0 : 1]
+//////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// [초기설정 끝]
