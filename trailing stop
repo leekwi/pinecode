@@ -1,0 +1,51 @@
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+_entryprice = strategy.opentrades.entry_price(strategy.opentrades - 1)
+plot(_entryprice, "entryprice", color.white, linewidth = 2, style = plot.style_linebr)
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////
+ts = "trailing stop option"
+ts_source = input.string(defval="close", title="ts_source", options=["close","low/high"], group = ts)
+ts_method = input.string(defval = "percent", title="ts_method", options = ["percent", "atr"], group = ts)
+
+ts_percent = input.float(defval=3.0, title="tr_percent", step=0.1, group = ts)/100
+
+ts_profit_percent = input.float(defval=100.0, title="tr_profit_percent", step=0.1, group = ts)/100
+float ts_profit = na
+
+ts_atr_length = input.int(defval = 14, title = "tr_atr_length", group = ts)
+ts_atr_mult=input.float(1.0, "ts_atr_mult", group = ts)
+ts_length = input.int(5, "ts_length for low/high", group = ts)
+
+atr_value = ta.atr(ts_atr_length)*ts_atr_mult
+float Low = ta.lowest(low, ts_length)
+float High = ta.highest(high, ts_length)
+
+var float ts_price = na
+float n_ts_price = na
+/////////////////////////////////////////////////////////////////////////////////////////////////
+if ts_method == "percent"
+    n_ts_price := switch ts_source
+        "close" => strategy.position_size >=0 ? close*(1-ts_percent) : close*(1+ts_percent) 
+        "low/high" => strategy.position_size >=0 ? Low*(1-ts_percent) : High*(1+ts_percent)
+
+if ts_method =="atr"
+    if ts_source == "close"
+        n_ts_price := strategy.position_size >=0 ? close - atr_value : close + atr_value
+    else if ts_source == "low/high"
+        n_ts_price := strategy.position_size >=0 ? Low - atr_value : High + atr_value        
+///////////////////////////////////////////////////////////////////////////////////////////////
+if strategy.position_size != 0 and barstate.isconfirmed
+    // ts_price :=n_ts_price
+    if (n_ts_price > ts_price or na(ts_price)) and strategy.position_size > 0 
+        ts_price :=n_ts_price
+    if (n_ts_price < ts_price or na(ts_price)) and strategy.position_size < 0 
+        ts_price :=n_ts_price      
+///////////////////////////////////////////////////////////////////////////////////////////
+if strategy.position_size ==0
+    ts_price :=na 
+
+ts_profit :=close*(1+ts_profit_percent)
+
+strategy.exit("ts_exit", limit=ts_profit, stop= ts_price)
+
+plot(strategy.position_size !=0?  ts_price : na,  color=color.yellow, title="tr_line", style = plot.style_linebr)
