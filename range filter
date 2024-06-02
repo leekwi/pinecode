@@ -1,0 +1,36 @@
+///////////range filter 
+
+//switch_rangefilter  = input.bool (true, "Show Range Filter Signals", group='=============== Range Filter ================')
+showrfline = input.bool (true, "Show RF line")//, group=rf_group)
+src = input.source(defval=close, title='Source')//, group=rf_group,inline = 'rf')
+// Sampling Period
+// Settings for 5min chart, BTCUSDC. For Other coin, change the paremeters
+per = input.int(defval=100, minval=1, title='Period')//, group=rf_group,inline = 'rf')
+// Range Multiplier
+mult = input.float(defval=3.0, minval=0.1, title='Multiplier')//, group=rf_group,inline = 'rf')
+// Smooth Average Range
+smoothrng(x, t, m) =>
+    wper = t * 2 - 1
+    avrng = ta.ema(math.abs(x - x[1]), t)
+    smoothrng = ta.ema(avrng, wper) * m
+    smoothrng
+smrng = smoothrng(src, per, mult)
+// Range Filter
+rngfilt(x, r) =>
+    rngfilt = x
+    rngfilt := x > nz(rngfilt[1]) ? x - r < nz(rngfilt[1]) ? nz(rngfilt[1]) : x - r : x + r > nz(rngfilt[1]) ? nz(rngfilt[1]) : x + r
+    rngfilt
+filt = rngfilt(src, smrng)
+
+// Filter Direction
+upward = 0.0
+upward := filt > filt[1] ? nz(upward[1]) + 1 : filt < filt[1] ? 0 : nz(upward[1])
+downward = 0.0
+downward := filt < filt[1] ? nz(downward[1]) + 1 : filt > filt[1] ? 0 : nz(downward[1])
+
+// Target Bands
+hband = filt + smrng
+lband = filt - smrng
+
+_long_rf = src > filt and src > src[1] and upward > 0 or src > filt and src < src[1] and upward > 0
+_short_rf =src < filt and src < src[1] and downward > 0 or src < filt and src > src[1] and downward > 0
