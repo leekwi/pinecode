@@ -1,0 +1,163 @@
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ("Trailing Stop with Supertrend, Parabolic SAR, Keltner Channel, Bollinger Bands, and Chandelier Exit")
+
+// Supertrend 설정
+factor = input.float(3.0, title="Factor", step=0.1)  // Supertrend 지표의 인자값 설정
+atrLength = input.int(10, title="ATR Length")  // Supertrend 지표의 ATR 길이 설정
+[supertrend, direction] = ta.supertrend(factor, atrLength)  // Supertrend 지표 계산
+
+// Parabolic SAR 설정
+sar_start = input.float(0.02, title="SAR Start", step=0.01)  // SAR 초기값 설정
+sar_increment = input.float(0.02, title="SAR Increment", step=0.01)  // SAR 증가값 설정
+sar_maximum = input.float(0.2, title="SAR Maximum", step=0.1)  // SAR 최대값 설정
+sar = ta.sar(sar_start, sar_increment, sar_maximum)  // SAR 계산
+
+// Keltner Channel 설정
+kc_length = input.int(20, title="KC Length")  // Keltner Channel 길이 설정
+kc_mult = input.float(2.0, title="KC Multiplier")  // Keltner Channel 곱셈 인자 설정
+ma = ta.sma(close, kc_length)  // 이동 평균 계산
+range1 = ta.atr(kc_length) * kc_mult  // ATR 곱셈 값 계산
+kc_upper = ma + range1  // Keltner Channel 상단 계산
+kc_lower = ma - range1  // Keltner Channel 하단 계산
+
+// Bollinger Bands 설정
+bb_length = input.int(20, title="BB Length")  // Bollinger Bands 길이 설정
+bb_mult = input.float(2.0, title="BB Multiplier")  // Bollinger Bands 곱셈 인자 설정
+bb_basis = ta.sma(close, bb_length)  // 이동 평균 계산
+bb_dev = bb_mult * ta.stdev(close, bb_length)  // 표준 편차 계산
+bb_upper = bb_basis + bb_dev  // Bollinger Bands 상단 계산
+bb_lower = bb_basis - bb_dev  // Bollinger Bands 하단 계산
+
+// Chandelier Exit 설정
+ce_length = input.int(22, title="Chandelier Exit Length")  // Chandelier Exit 길이 설정
+ce_mult = input.float(3.0, title="Chandelier Exit Multiplier")  // Chandelier Exit 곱셈 인자 설정
+ce_high = ta.highest(high, ce_length)  // 설정된 길이 동안의 최고가
+ce_low = ta.lowest(low, ce_length)  // 설정된 길이 동안의 최저가
+ce_atr = ta.atr(atrLength)  // ATR 계산
+ce_long = ce_high - ce_atr * ce_mult  // 롱 포지션의 Chandelier Exit 계산
+ce_short = ce_low + ce_atr * ce_mult  // 숏 포지션의 Chandelier Exit 계산
+
+// Donchian Channel 설정
+dc_length = input.int(20, title="Donchian Channel Length")  // Donchian Channel 길이 설정
+dc_upper = ta.highest(high, dc_length)  // Donchian Channel 상단 계산
+dc_lower = ta.lowest(low, dc_length)  // Donchian Channel 하단 계산
+
+/////////////////////////////////////////////////////
+_entryprice = strategy.opentrades.entry_price(strategy.opentrades - 1)
+plot(_entryprice, "entryprice", color.white, linewidth = 2, style = plot.style_linebr)
+/////////////////////////////////////////////////////
+
+// 트레일링 스탑 설정
+ts = "trailing stop option"
+ts_source = input.string(defval="close", title="ts_source", options=["close", "low/high", "average price"], group=ts)  // 트레일링 스탑 소스 설정
+ts_method = input.string(defval="supertrend", title="ts_method", options=["percent", "atr", "supertrend", "parabolic sar", "keltner channel", "bollinger bands", "chandelier exit", "donchian channel"], group=ts)  
+// 트레일링 스탑 방법 설정
+// //트레일링스탑 설정
+// ts = "trailing stop source and method option"  //그룹지정
+// ts2 = "trailing stop setting"
+// ts_pf = "trailing stop profit setting"
+
+// ts_source = input.string(defval = "close", title="ts_source", options=["close", "low/high", "average_price"], group = ts, inline="b") //소스설정
+// ts_method = input.string(defval = "percent", title="ts_method", options=["percent", "atr"], group = ts, inline="b /n") // 방벙설정
+
+// ts_percent = input.float(defval = 3.0, title = "tr_percent", step = 0.1, group = ts2, inline="a /n") /100
+
+// ts_atr_length = input.int(defval = 14, title = "tr_atr_length", group = ts2, inline = "a")
+// ts_atr_mult = input.float(defval = 1.0, title="ts_atr_mult", group = ts2, inline ="a")
+
+// ts_length = input.int(5, "ts_length for low/high", group = ts, inline="b")
+
+// ts_profit_percent = input.float(defval = 100.0, title="tr_profit_percent", step = 0.1, group = ts_pf) // 익절 퍼센트
+
+ts_percent = input.float(defval=3.0, title="tr_percent", step=0.1, group=ts) / 100  // 퍼센트 기반 트레일링 스탑 설정
+ts_profit_percent = input.float(defval=100.0, title="tr_profit_percent", step=0.1, group=ts) / 100  // 이익 퍼센트 설정
+float ts_profit = na  // 초기 트레일링 스탑 이익값 설정
+
+ts_atr_length = input.int(defval=14, title="tr_atr_length", group=ts)  // ATR 길이 설정
+ts_atr_mult = input.float(1.0, "ts_atr_mult", group=ts)  // ATR 곱셈 인자 설정
+ts_length = input.int(5, "ts_length for low/high", group=ts)  // Low/High 길이 설정
+
+atr_value = ta.atr(ts_atr_length) * ts_atr_mult  // ATR 값 계산
+float Low = ta.lowest(low, ts_length)  // Low 값 계산
+float High = ta.highest(high, ts_length)  // High 값 계산
+
+// 평단가 계산
+var float average_price = na
+if (strategy.position_size != 0)
+    average_price := strategy.position_avg_price  // 포지션이 있을 때 평균 가격 계산
+else
+    average_price := na  // 포지션이 없을 때는 평균 가격 없음
+
+var float ts_price = na  // 초기 트레일링 스탑 가격 설정
+float n_ts_price = na  // 새로운 트레일링 스탑 가격 설정
+
+// 퍼센트 기반 트레일링 스탑 계산
+if ts_method == "percent"
+    n_ts_price := switch ts_source
+        "close" => strategy.position_size >= 0 ? close * (1 - ts_percent) : close * (1 + ts_percent)  // 종가 기준 퍼센트 트레일링 스탑
+        "low/high" => strategy.position_size >= 0 ? Low * (1 - ts_percent) : High * (1 + ts_percent)  // Low/High 기준 퍼센트 트레일링 스탑
+        "average price" => strategy.position_size >= 0 ? average_price * (1 - ts_percent) : average_price * (1 + ts_percent)  // 평균 가격 기준 퍼센트 트레일링 스탑
+
+// ATR 기반 트레일링 스탑 계산
+if ts_method == "atr"
+    if ts_source == "close"
+        n_ts_price := strategy.position_size >= 0 ? close - atr_value : close + atr_value  // 종가 기준 ATR 트레일링 스탑
+    else if ts_source == "low/high"
+        n_ts_price := strategy.position_size >= 0 ? Low - atr_value : High + atr_value  // Low/High 기준 ATR 트레일링 스탑
+    else if ts_source == "average price"
+        n_ts_price := strategy.position_size >= 0 ? average_price - atr_value : average_price + atr_value  // 평균 가격 기준 ATR 트레일링 스탑
+
+// Supertrend 기반 트레일링 스탑 계산
+if ts_method == "supertrend"
+    n_ts_price := strategy.position_size >= 0 ? supertrend : supertrend  // Supertrend 기준 트레일링 스탑
+
+// Parabolic SAR 기반 트레일링 스탑 계산
+if ts_method == "parabolic sar"
+    n_ts_price := strategy.position_size >= 0 ? sar : sar  // SAR 기준 트레일링 스탑
+
+// Keltner Channel 기반 트레일링 스탑 계산
+if ts_method == "keltner channel"
+    n_ts_price := strategy.position_size >= 0 ? kc_lower : kc_upper  // Keltner Channel 기준 트레일링 스탑
+
+// Bollinger Bands 기반 트레일링 스탑 계산
+if ts_method == "bollinger bands"
+    n_ts_price := strategy.position_size >= 0 ? bb_lower : bb_upper  // Bollinger Bands 기준 트레일링 스탑
+
+// Chandelier Exit 기반 트레일링 스탑 계산
+if ts_method == "chandelier exit"
+    n_ts_price := strategy.position_size >= 0 ? ce_long : ce_short  // Chandelier Exit 기준 트레일링 스탑
+
+// Donchian Channel 기반 트레일링 스탑 계산
+if ts_method == "donchian channel"
+    n_ts_price := strategy.position_size >= 0 ? dc_lower : dc_upper  // Donchian Channel 기준 트레일링 스탑
+
+// 트레일링 스탑 가격 설정
+if strategy.position_size != 0 and barstate.isconfirmed
+    if (n_ts_price > ts_price or na(ts_price)) and strategy.position_size > 0
+        ts_price := n_ts_price  // 롱 포지션일 때 트레일링 스탑 가격 업데이트
+    if (n_ts_price < ts_price or na(ts_price)) and strategy.position_size < 0
+        ts_price := n_ts_price  // 숏 포지션일 때 트레일링 스탑 가격 업데이트
+
+if strategy.position_size == 0
+    ts_price := na  // 포지션이 없을 때는 트레일링 스탑 가격 없음
+
+ts_profit := close * (1 + ts_profit_percent)  // 목표 이익 가격 설정
+
+// 트레일링 스탑 및 목표 이익 설정
+strategy.exit("ts_exit", limit=ts_profit, stop=ts_price)
+
+// 삼항 연산자를 사용하여 조건에 맞는 지표만 표시
+plot(ts_method == "supertrend" ? supertrend : na, color=color.green, title="Supertrend", style=plot.style_line)
+plot(ts_method == "parabolic sar" ? sar : na, color=color.red, title="Parabolic SAR", style=plot.style_cross)
+plot(ts_method == "keltner channel" ? kc_upper : na, color=color.blue, title="Keltner Channel Upper", style=plot.style_line)
+plot(ts_method == "keltner channel" ? kc_lower : na, color=color.orange, title="Keltner Channel Lower", style=plot.style_line)
+plot(ts_method == "bollinger bands" ? bb_upper : na, color=color.purple, title="Bollinger Bands Upper", style=plot.style_line)
+plot(ts_method == "bollinger bands" ? bb_lower : na, color=color.purple, title="Bollinger Bands Lower", style=plot.style_line)
+plot(ts_method == "chandelier exit" ? ce_long : na, color=color.white, title="Chandelier Exit Long", style=plot.style_line)
+plot(ts_method == "chandelier exit" ? ce_short : na, color=color.white, title="Chandelier Exit Short", style=plot.style_line)
+plot(ts_method == "donchian channel" ? dc_upper : na, color=color.lime, title="Donchian Channel Upper", style=plot.style_line)
+plot(ts_method == "donchian channel" ? dc_lower : na, color=color.lime,
+
+// 트레일링 스탑 라인 표시
+plot(strategy.position_size != 0 ? ts_price : na, color=color.yellow, title="tr_line", style=plot.style_linebr)
+
