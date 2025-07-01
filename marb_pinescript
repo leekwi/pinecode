@@ -1,0 +1,191 @@
+//@version=6
+strategy('Multi-Band Strategy: MAD, RSI, ATR-카피카피', overlay = true, default_qty_type = strategy.percent_of_equity, default_qty_value = 10, margin_long = 0, margin_short = 0)
+
+// === Input ===
+length = input.int(20, title = 'Length')
+mult = input.float(2.0, title = 'Multiplier')
+source = input.source(close, title = 'Source')
+useEMA = input.bool(false, title = 'Use EMA instead of SMA')
+useMAD = input.bool(true, title = 'Use MAD Band')
+useRSI = input.bool(true, title = 'Use RSI Momentum Band')
+useATR = input.bool(false, title = 'Use ATR Band')
+entryLogic = input.string('any', title = 'Entry Condition Type', options = ['any', 'all', 'onlyOne'])
+rsiLength = input.int(14, title = 'RSI Length')
+rsiThreshold = input.float(50.0, title = 'RSI Midline')
+syncLength = input.int(20, title = 'Correlation Lookback')
+
+// === Center line ===
+basis = useEMA ? ta.ema(source, length) : ta.sma(source, length)
+
+// === MAD Band ===
+mad = ta.sma(math.abs(source - basis), length)
+upperMAD = basis + mult * mad
+lowerMAD = basis - mult * mad
+madInRange = close >= lowerMAD and close <= upperMAD
+madDistance = close > upperMAD ? close - upperMAD : close < lowerMAD ? lowerMAD - close : 0.0
+
+// === RSI Momentum Band ===
+rsi = ta.rsi(source, rsiLength)
+rsiMultiplier = mult * (rsi - rsiThreshold) / 50
+upperRSI = basis + math.max(mult * 0.5, rsiMultiplier * mad)
+lowerRSI = basis - math.max(mult * 0.5, -rsiMultiplier * mad)
+rsiInRange = close >= lowerRSI and close <= upperRSI
+rsiDistance = close > upperRSI ? close - upperRSI : close < lowerRSI ? lowerRSI - close : 0.0
+
+// === ATR Band ===
+atr1 = ta.atr(length)
+upperATR = basis + mult * atr1
+lowerATR = basis - mult * atr1
+atrInRange = close >= lowerATR and close <= upperATR
+atrDistance = close > upperATR ? close - upperATR : close < lowerATR ? lowerATR - close : 0.0
+
+// === Nearest Band Detection ===
+madValid = useMAD ? madDistance : na
+rsiValid = useRSI ? rsiDistance : na
+atrValid = useATR ? atrDistance : na
+
+nearestBand = ''
+nearestDistance = math.min(math.min(madValid, rsiValid), atrValid)
+nearestBand := nearestDistance == madValid ? 'MAD' : nearestDistance == rsiValid ? 'RSI' : nearestDistance == atrValid ? 'ATR' : '-'
+
+// === Predicted Entry (next bar crossover) ===
+change_ = ta.change(close)
+predictedLong = useMAD and close < lowerMAD and close[1] < lowerMAD and close + change_ > lowerMAD or useRSI and close < lowerRSI and close[1] < lowerRSI and close + change_ > lowerRSI or useATR and close < lowerATR and close[1] < lowerATR and close + change_ > lowerATR
+
+// === Entry Logic Variants ===
+cross_lowerMAD = ta.crossover(close, lowerMAD)
+madCond = useMAD and cross_lowerMAD
+rsiCond = useRSI and ta.crossover(close, lowerRSI)
+atrCond = useATR and ta.crossover(close, lowerATR)
+
+madCondShort = useMAD and ta.crossunder(close, upperMAD)
+rsiCondShort = useRSI and ta.crossunder(close, upperRSI)
+atrCondShort = useATR and ta.crossunder(close, upperATR)
+
+madOnly = useMAD and not useRSI and not useATR
+rsiOnly = useRSI and not useMAD and not useATR
+atrOnly = useATR and not useMAD and not useRSI
+
+///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////
+Rf = ' 🜊🜊🜊 Range Filter 🜊🜊🜊 '
+///////////////////////////////////
+
+showrfline = input.bool(true, 'Show RF line', group = Rf)
+src = input.source(defval = close, title = 'Source', group = Rf)
+// Sampling Period
+// Settings for 5min chart, BTCUSDC. For Other coin, change the paremeters
+per = input.int(defval = 100, minval = 1, title = 'Period', group = Rf)
+// Range Multiplier
+mult1 = input.float(defval = 3.0, minval = 0.1, title = 'Multiplier', group = Rf)
+// Smooth Average Range
+smoothrng(x, t, m) =>
+    wper = t * 2 - 1
+    avrng = ta.ema(math.abs(x - x[1]), t)
+    smoothrng = ta.ema(avrng, wper) * m
+    smoothrng
+smrng = smoothrng(src, per, mult1)
+// Range Filter
+rngfilt(x, r) =>
+    rngfilt = x
+    rngfilt := x > nz(rngfilt[1]) ? x - r < nz(rngfilt[1]) ? nz(rngfilt[1]) : x - r : x + r > nz(rngfilt[1]) ? nz(rngfilt[1]) : x + r
+    rngfilt
+filt = rngfilt(src, smrng)
+
+// Filter Direction
+upward = 0.0
+upward := filt > filt[1] ? nz(upward[1]) + 1 : filt < filt[1] ? 0 : nz(upward[1])
+downward = 0.0
+downward := filt < filt[1] ? nz(downward[1]) + 1 : filt > filt[1] ? 0 : nz(downward[1])
+
+// Target Bands
+hband = filt + smrng
+lband = filt - smrng
+
+_long_rf = src > filt and src > src[1] and upward > 0 or src > filt and src < src[1] and upward > 0
+_short_rf = src < filt and src < src[1] and downward > 0 or src < filt and src > src[1] and downward > 0
+
+// leadinglongcond := src > filt and src > src[1] and upward > 0 or src > filt and src < src[1] and upward > 0
+// leadingshortcond := src < filt and src < src[1] and downward > 0 or src < filt and src > src[1] and downward > 0
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////
+
+
+longCondition = entryLogic == 'any' and (madCond or rsiCond or atrCond) or entryLogic == 'all' and madCond and rsiCond and atrCond or entryLogic == 'onlyOne' and (madOnly and madCond or rsiOnly and rsiCond or atrOnly and atrCond)
+
+shortCondition = entryLogic == 'any' and (madCondShort or rsiCondShort or atrCondShort) or entryLogic == 'all' and madCondShort and rsiCondShort and atrCondShort or entryLogic == 'onlyOne' and (madOnly and madCondShort or rsiOnly and rsiCondShort or atrOnly and atrCondShort)
+
+if longCondition and rsi > rsiThreshold and _long_rf
+    strategy.entry('Long', strategy.long)
+    // if shortCondition and rsi < rsiThreshold
+    //     strategy.entry("Short", strategy.short)
+
+// === Exit Logic ===
+exitLong = ta.crossunder(close, basis)
+exitShort = ta.crossover(close, basis)
+
+// if exitLong
+//     strategy.close("Long")
+// if exitShort
+//     strategy.close("Short")
+
+// === Band Correlation Analysis ===
+madChg = upperMAD - upperMAD[1]
+rsiChg = upperRSI - upperRSI[1]
+atrChg = upperATR - upperATR[1]
+
+mad_rsi_corr = ta.correlation(madChg, rsiChg, syncLength)
+mad_atr_corr = ta.correlation(madChg, atrChg, syncLength)
+rsi_atr_corr = ta.correlation(rsiChg, atrChg, syncLength)
+
+// === Plotting ===
+plot(basis, color = color.gray, title = 'Basis')
+plot(useMAD ? upperMAD : na, title = 'Upper MAD', color = color.orange)
+plot(useMAD ? lowerMAD : na, title = 'Lower MAD', color = color.teal)
+plot(useRSI ? upperRSI : na, title = 'Upper RSI Band', color = color.fuchsia)
+plot(useRSI ? lowerRSI : na, title = 'Lower RSI Band', color = color.navy)
+plot(useATR ? upperATR : na, title = 'Upper ATR Band', color = color.red)
+plot(useATR ? lowerATR : na, title = 'Lower ATR Band', color = color.green)
+
+// === Table for Band Info ===
+tableUpdateInterval = input.int(1, title = 'Table Update Interval (bars)', minval = 1)
+
+tbl = table.new(position.top_right, 6, 6, border_width = 1)
+
+if bar_index % tableUpdateInterval == 0
+
+    table.cell(tbl, 0, 0, 'Band Type', text_color = color.white, bgcolor = color.gray)
+    table.cell(tbl, 1, 0, 'Range', text_color = color.white, bgcolor = color.gray)
+    table.cell(tbl, 2, 0, 'Status', text_color = color.white, bgcolor = color.gray)
+    table.cell(tbl, 3, 0, 'Distance', text_color = color.white, bgcolor = color.gray)
+    table.cell(tbl, 4, 0, 'Next Entry?', text_color = color.white, bgcolor = color.gray)
+    table.cell(tbl, 5, 0, 'Correlation', text_color = color.white, bgcolor = color.gray)
+
+    if useMAD
+        table.cell(tbl, 0, 1, 'MAD', text_color = color.orange)
+        table.cell(tbl, 1, 1, str.tostring(lowerMAD, format.mintick) + ' ~ ' + str.tostring(upperMAD, format.mintick))
+        table.cell(tbl, 2, 1, madInRange ? 'In Range' : 'Breakout', text_color = color.white, bgcolor = madInRange ? color.green : color.red)
+        table.cell(tbl, 3, 1, str.tostring(madDistance, format.mintick))
+        table.cell(tbl, 4, 1, predictedLong and madCond ? '✔' : '')
+        table.cell(tbl, 5, 1, str.tostring(mad_rsi_corr, format.percent))
+
+    if useRSI
+        table.cell(tbl, 0, 2, 'RSI', text_color = color.fuchsia)
+        table.cell(tbl, 1, 2, str.tostring(lowerRSI, format.mintick) + ' ~ ' + str.tostring(upperRSI, format.mintick))
+        table.cell(tbl, 2, 2, rsiInRange ? 'In Range' : 'Breakout', text_color = color.white, bgcolor = rsiInRange ? color.green : color.red)
+        table.cell(tbl, 3, 2, str.tostring(rsiDistance, format.mintick))
+        table.cell(tbl, 4, 2, predictedLong and rsiCond ? '✔' : '')
+        table.cell(tbl, 5, 2, str.tostring(rsi_atr_corr, format.percent))
+
+    if useATR
+        table.cell(tbl, 0, 3, 'ATR', text_color = color.red)
+        table.cell(tbl, 1, 3, str.tostring(lowerATR, format.mintick) + ' ~ ' + str.tostring(upperATR, format.mintick))
+        table.cell(tbl, 2, 3, atrInRange ? 'In Range' : 'Breakout', text_color = color.white, bgcolor = atrInRange ? color.green : color.red)
+        table.cell(tbl, 3, 3, str.tostring(atrDistance, format.mintick))
+        table.cell(tbl, 4, 3, predictedLong and atrCond ? '✔' : '')
+        table.cell(tbl, 5, 3, str.tostring(mad_atr_corr, format.percent))
+
+    table.cell(tbl, 0, 5, 'Nearest', text_color = color.yellow)
+    table.cell(tbl, 1, 5, nearestBand)
+
+/////////////////////////////////////////////////////////////////////////////////
